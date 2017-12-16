@@ -17,6 +17,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 from tensorflow.contrib import rnn
+from act_cell import ACTCell
 
 # Import MNIST data
 from tensorflow.examples.tutorials.mnist import input_data
@@ -63,10 +64,14 @@ def RNN(x, weights, biases):
     x = tf.unstack(x, timesteps, 1)
 
     # Define a lstm cell with tensorflow
-    lstm_cell = rnn.BasicLSTMCell(num_hidden, forget_bias=1.0)
+    cell = rnn.BasicLSTMCell(num_hidden, forget_bias=1.0)
+
+    cell = ACTCell(num_hidden, cell, epsilon=0.01,
+                   max_computation=50,
+                   batch_size=batch_size)
 
     # Get lstm cell output
-    outputs, states = rnn.static_rnn(lstm_cell, x, dtype=tf.float32)
+    outputs, states = rnn.static_rnn(cell, x, dtype=tf.float32)
 
     # Linear activation, using rnn inner loop last output
     return tf.matmul(outputs[-1], weights['out']) + biases['out']
@@ -77,7 +82,7 @@ prediction = tf.nn.softmax(logits)
 # Define loss and optimizer
 loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
     logits=logits, labels=Y))
-optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 train_op = optimizer.minimize(loss_op)
 
 # Evaluate model (with test logits, for dropout to be disabled)

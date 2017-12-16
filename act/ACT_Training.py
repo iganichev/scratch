@@ -13,6 +13,16 @@ from epoch import run_epoch
 from reader import ptb_raw_data
 import saveload
 
+FLAGS = tf.app.flags.FLAGS
+
+tf.app.flags.DEFINE_string("model_size", "small", "Size of model to train, either small, medium or large")
+tf.app.flags.DEFINE_string("data_path", os.path.expanduser("~")+'/ptb/', "data_path")
+tf.app.flags.DEFINE_string("model_path", None, "full path of a saved model to load")
+tf.app.flags.DEFINE_string("weights_dir", None, "full directory path to save weights into per epoch")
+tf.app.flags.DEFINE_boolean("verbose", True, "Verbosity of the training")
+tf.app.flags.DEFINE_boolean("debug", True, "Uses small corpuses for debugging purposes")
+
+
 def get_config(conf):
     if conf == "small":
         return cf.SmallConfig
@@ -25,7 +35,8 @@ def get_config(conf):
     else:
         raise ValueError('did not enter acceptable model config:', conf)
 
-def main(unused_args):
+
+def main(argv=None):
 
     config = get_config(FLAGS.model_size)
     eval_config = get_config(FLAGS.model_size)
@@ -80,19 +91,6 @@ def main(unused_args):
     if verbose:
         print("Test Perplexity: %.3f" % test_loss)
 
+
 if __name__ == '__main__':
-    flags = tf.flags
-    logging = tf.logging
-    flags.DEFINE_string("model_size", "small", "Size of model to train, either small, medium or large")
-    flags.DEFINE_string("data_path", os.path.expanduser("~")+'/ptb/', "data_path")
-    flags.DEFINE_string("model_path", None, "full path of a saved model to load")
-    flags.DEFINE_string("weights_dir", None, "full directory path to save weights into per epoch")
-    flags.DEFINE_boolean("verbose", True, "Verbosity of the training")
-    flags.DEFINE_boolean("debug", True, "Uses small corpuses for debugging purposes")
-    FLAGS = flags.FLAGS
-
-    from tensorflow.python.platform import flags
-    from sys import argv
-
-    flags.FLAGS._parse_flags()
-    main(argv)
+    tf.app.run()

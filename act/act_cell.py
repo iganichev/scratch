@@ -16,6 +16,7 @@ class ACTCell(RNNCell):
     """
     def __init__(self, num_units, cell, epsilon,
                  max_computation, batch_size, sigmoid_output=False):
+        super(RNNCell, self).__init__()
 
         self.batch_size = batch_size
         self.one_minus_eps = tf.fill([self.batch_size], tf.constant(1.0 - epsilon, dtype=tf.float32))
@@ -31,6 +32,9 @@ class ACTCell(RNNCell):
         else:
             self._state_is_tuple = False
 
+        # Call build when it is called the first time
+        self.dense_layer = tf.layers.Dense(1, activation=tf.sigmoid, use_bias=True)
+
     @property
     def input_size(self):
         return self._num_units
@@ -41,9 +45,17 @@ class ACTCell(RNNCell):
     def state_size(self):
         return self._num_units
 
+    def reset_stats(self):
+        # i'th value contains the total number of steps all images in the batch
+        # thought for on row i. Divide this by batch_size to get averages.
+        self.stats = [0]*28
+        self.current_row_idx = -1
+
     def __call__(self, inputs, state, timestep=0, scope=None):
-        import pdb
-        pdb.set_trace()
+        #import pdb
+        #pdb.set_trace()
+
+        self.current_row_idx += 1
 
         if self._state_is_tuple:
             state = tf.concat(state, 1)
@@ -55,8 +67,7 @@ class ACTCell(RNNCell):
             counter = tf.zeros_like(prob, tf.float32, name="counter")
             acc_outputs = tf.fill([self.batch_size, self.output_size], 0.0, name='output_accumulator')
             acc_states = tf.zeros_like(state, tf.float32, name="state_accumulator")
-            batch_mask = tf.fill([self.batch_size], True, name="batch_mask")
-
+            batch_mask = tf.fill([self.batch_size], tf.constant(True, dtype=tf.bool), name="batch_mask")
 
             # While loop stops when this predicate is FALSE.
             # Ie all (probability < 1-eps AND counter < N) are false.
@@ -91,7 +102,7 @@ class ACTCell(RNNCell):
             tf.add_n(self.ACT_remainder)/len(self.ACT_remainder) +
             tf.to_float(tf.add_n(self.ACT_iterations)/len(self.ACT_iterations)))
 
-    def act_step(self,batch_mask,prob_compare,prob,counter,state,input,acc_outputs,acc_states):
+    def act_step(self, batch_mask, prob_compare, prob, counter, state, input, acc_outputs, acc_states):
         '''
         General idea: generate halting probabilites and accumulate them. Stop when the accumulated probs
         reach a halting value, 1-eps. At each timestep, multiply the prob with the rnn output/state.
@@ -102,6 +113,10 @@ class ACTCell(RNNCell):
         multiplied with the state/output, having been accumulated over the timesteps, as this takes
         into account the epsilon value.
         '''
+
+        with tf.device("/cpu:0"):
+          self.stats[self.current_row_idx] += tf.count_nonzero(batch_mask.cpu(), dtype=tf.int32).numpy()
+        #print("Step count %d, First example still thinking %d " % (self.step_count, batch_mask.numpy()[0]))
 
         # If all the probs are zero, we are seeing a new input => binary flag := 1, else 0.
         binary_flag = tf.cond(tf.reduce_all(tf.equal(prob, 0.0)),
@@ -114,17 +129,22 @@ class ACTCell(RNNCell):
             (c, h) = tf.split(state, 2, 1)
             state = tf.contrib.rnn.LSTMStateTuple(c, h)
 
+        # state is tuple of 2 128x60 and 128x60 tensors
         output, new_state = static_rnn(cell=self.cell, inputs=[input_with_flags], initial_state=state, scope=type(self.cell).__name__)
 
         if self._state_is_tuple:
             new_state = tf.concat(new_state, 1)
 
+        if not self.dense_layer.built:
+            self.dense_layer.build(new_state.get_shape())
+
         with tf.variable_scope('sigmoid_activation_for_pondering'):
-            p = tf.squeeze(tf.layers.dense(new_state, 1, activation=tf.sigmoid, use_bias=True), squeeze_dims=1)
+            p = tf.squeeze(self.dense_layer(new_state), squeeze_dims=1)
 
         # Multiply by the previous mask as if we stopped before, we don't want to start again
         # if we generate a p less than p_t-1 for a given example.
         new_batch_mask = tf.logical_and(tf.less(prob + p, self.one_minus_eps), batch_mask)
+
         new_float_mask = tf.cast(new_batch_mask, tf.float32)
 
         # Only increase the prob accumulator for the examples

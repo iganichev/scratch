@@ -48,8 +48,6 @@ class ACTModel(object):
         inputs = tf.nn.embedding_lookup(embedding, self.input_data)
 
         inputs = [tf.squeeze(single_input, [1]) for single_input in tf.split(inputs, self.config.num_steps, 1)]
-        import pdb
-        pdb.set_trace()
 
         self.outputs, final_state = static_rnn(act, inputs, dtype = tf.float32)
 

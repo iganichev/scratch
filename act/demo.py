@@ -26,12 +26,13 @@ handle 28 sequences of 28 steps for every sample.
 learning_rate = 0.001
 training_steps = 10000
 batch_size = 128
+float_batch_size = float(batch_size)
 display_step = 200
 
 # Network Parameters
 num_input = 28 # MNIST data input (img shape: 28*28)
 timesteps = 28 # timesteps
-num_hidden = 128 # hidden layer num of features
+num_hidden = 120 # hidden layer num of features
 num_classes = 10 # MNIST total classes (0-9 digits)
 epsilon = 0.01
 
@@ -39,7 +40,7 @@ epsilon = 0.01
 def loss(brother, x, y):
     y_ = brother.model(x)
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-        logits=y_, labels=y))
+        logits=y_, labels=y)) + brother.model.act_cell.calculate_ponder_cost(time_penalty=0.1)
     return loss
 
 
@@ -62,16 +63,19 @@ class Model(tfe.Network):
             with tf.variable_scope("b_iga"):
                 self.b = tfe.Variable(tf.random_normal([num_classes]))
             with tf.variable_scope("lstm"):
-                self.cell = rnn.BasicLSTMCell(num_hidden, forget_bias=1.0)
-                self.cell = ACTCell(num_hidden, self.cell, epsilon,
-                                    max_computation=50,
-                                    batch_size=batch_size)
+                #self.cell = rnn.BasicLSTMCell(num_hidden, forget_bias=1.0)
+                self.cell = rnn.GRUCell(num_hidden)
+                self.act_cell = ACTCell(num_hidden, self.cell, epsilon,
+                                        max_computation=50,
+                                        batch_size=batch_size)
 
 
     def call(self, x):
+        self.act_cell.reset_stats()
         x = tf.unstack(x, timesteps, 1)
         with tf.variable_scope("rnn_iga"):
-            outputs, states = rnn.static_rnn(self.cell, x, dtype=tf.float32)
+            outputs, states = rnn.static_rnn(self.act_cell, x, dtype=tf.float32)
+        print(" ".join(["%2.1f" % (x/float_batch_size) for x in self.act_cell.stats]))
         return tf.matmul(outputs[-1], self.w) + self.b
 
 
@@ -83,16 +87,18 @@ class BigBrother(object):
     def train(self):
         (train_ds, test_ds) = load_data()
         train_ds = train_ds.shuffle(60000).batch(batch_size)
-        batches_per_epoch = 60000 / 128
+        batches_per_epoch = 60000 / batch_size
         
-        #optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+        #optimizer = tf.train.GradientDescentOptimizer(
+        #   learning_rate=learning_rate)
         optimizer = tf.train.AdamOptimizer()  # learning_rate=learning_rate)
         with tf.device("/gpu:0"):
             for step in range(0, 100):
                 for (batch, (batch_x, batch_y)) in enumerate(tfe.Iterator(train_ds)):
-                    if batch_x.shape[0] < 128:
+                    if batch_x.shape[0] < batch_size:
                         continue
                     s = step * batches_per_epoch + batch
+                    #print("Step: " + str(s))
                     # Reshape data to get 28 seq of 28 elements
                     batch_x = tf.reshape(batch_x, [batch_size, timesteps, num_input])
                     grads = tfe.implicit_gradients(loss)(self, batch_x, batch_y)
@@ -101,7 +107,7 @@ class BigBrother(object):
                     optimizer.apply_gradients(grads)
                     #optimizer.minimize(lambda: loss(self, batch_x, batch_y))
                     
-                    if s % 200 == 0:
+                    if s % 10 == 0:
                         loss_val = loss(self, batch_x, batch_y)
 
                         logits = self.model(batch_x)
