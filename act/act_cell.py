@@ -69,6 +69,9 @@ class ACTCell(RNNCell):
             acc_states = tf.zeros_like(state, tf.float32, name="state_accumulator")
             batch_mask = tf.fill([self.batch_size], tf.constant(True, dtype=tf.bool), name="batch_mask")
 
+            #import pdb
+            #pdb.set_trace()
+
             # While loop stops when this predicate is FALSE.
             # Ie all (probability < 1-eps AND counter < N) are false.
             def halting_predicate(batch_mask, prob_compare, prob,
@@ -130,7 +133,10 @@ class ACTCell(RNNCell):
             state = tf.contrib.rnn.LSTMStateTuple(c, h)
 
         # state is tuple of 2 128x60 and 128x60 tensors
-        output, new_state = static_rnn(cell=self.cell, inputs=[input_with_flags], initial_state=state, scope=type(self.cell).__name__)
+        # This is equivalent to the following but faster in eager mode. The only
+        # exception is that `ouput` of static_rnn is a list of one element 
+        #output, new_state = static_rnn(cell=self.cell, inputs=[input_with_flags], initial_state=state, scope=type(self.cell).__name__)
+        output, new_state = self.cell(input_with_flags, state)
 
         if self._state_is_tuple:
             new_state = tf.concat(new_state, 1)
@@ -174,6 +180,6 @@ class ACTCell(RNNCell):
         float_mask = tf.expand_dims(tf.cast(batch_mask, tf.float32), -1)
 
         acc_state = (new_state * update_weight * float_mask) + acc_states
-        acc_output = (output[0] * update_weight * float_mask) + acc_outputs
+        acc_output = (output * update_weight * float_mask) + acc_outputs
 
         return [new_batch_mask, prob_compare, prob, counter, new_state, input, acc_output, acc_state]
