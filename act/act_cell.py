@@ -144,8 +144,13 @@ class ACTCell(RNNCell):
         if not self.dense_layer.built:
             self.dense_layer.build(new_state.get_shape())
 
-        with tf.variable_scope('sigmoid_activation_for_pondering'):
-            p = tf.squeeze(self.dense_layer(new_state), squeeze_dims=1)
+        #import pdb
+        #pdb.set_trace()
+        # pass new_state of internal RNN through one dense layer. Squeeze
+        # removes the second dimension, making p be a vector of length 128.
+        # new_state.shape => TensorShape([Dimension(128), Dimension(120)])
+        # p.shape => TensorShape([Dimension(128)])
+        p = tf.squeeze(self.dense_layer(new_state), squeeze_dims=1)
 
         # Multiply by the previous mask as if we stopped before, we don't want to start again
         # if we generate a p less than p_t-1 for a given example.
