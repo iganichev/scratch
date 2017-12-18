@@ -15,7 +15,7 @@ class ACTCell(RNNCell):
     A RNN cell implementing Graves' Adaptive Computation Time algorithm
     """
     def __init__(self, num_units, cell, epsilon,
-                 max_computation, batch_size, sigmoid_output=False):
+                 max_computation, batch_size):
         super(RNNCell, self).__init__()
 
         self.batch_size = batch_size
@@ -25,7 +25,6 @@ class ACTCell(RNNCell):
         self.max_computation = max_computation
         self.ACT_remainder = []
         self.ACT_iterations = []
-        self.sigmoid_output = sigmoid_output
 
         if hasattr(self.cell, "_state_is_tuple"):
             self._state_is_tuple = self.cell._state_is_tuple
@@ -89,9 +88,6 @@ class ACTCell(RNNCell):
         #accumulate remainder  and N values
         self.ACT_remainder.append(tf.reduce_mean(1 - remainders))
         self.ACT_iterations.append(tf.reduce_mean(iterations))
-
-        if self.sigmoid_output:
-            output = tf.sigmoid(tf.contrib.rnn.BasicRNNCell._linear(output,self.batch_size,0.0))
 
         if self._state_is_tuple:
             next_c, next_h = tf.split(next_state, 2, 1)
