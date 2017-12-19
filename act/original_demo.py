@@ -38,7 +38,7 @@ display_step = 10
 # Network Parameters
 num_input = 28 # MNIST data input (img shape: 28*28)
 timesteps = 28 # timesteps
-num_hidden = 128 # hidden layer num of features
+num_hidden = 120 # hidden layer num of features
 num_classes = 10 # MNIST total classes (0-9 digits)
 time_penalty = 0.01
 
@@ -61,8 +61,6 @@ def RNN(x, weights, biases):
     # Current data input shape: (batch_size, timesteps, n_input)
     # Required shape: 'timesteps' tensors list of shape (batch_size, n_input)
 
-    # Unstack to get a list of 'timesteps' tensors of shape (batch_size, n_input)
-    x = tf.unstack(x, timesteps, 1)
 
     # Define a lstm cell with tensorflow
     cell = rnn.GRUCell(num_hidden)
@@ -71,18 +69,28 @@ def RNN(x, weights, biases):
                    max_computation=8,
                    batch_size=batch_size)
 
-    #import pdb
-    #pdb.set_trace()
+    # Unstacking is necessary for static_rnn
+    # Unstack to get a list of 'timesteps' tensors of shape (batch_size, n_input)
+    # x = tf.unstack(x, timesteps, 1)
+
     # Get gru cell output
     # outputs_and_act_losses is a list of 28 2-tuples, each one is (output, loss_tensor)
-    outputs_and_act_losses, states = rnn.static_rnn(cell, x, dtype=tf.float32)
-    raw_act_losses = tf.stack([x[1] for x in outputs_and_act_losses])
-    act_loss = time_penalty * tf.reduce_sum(
-	tf.reduce_mean(raw_act_losses, axis=0))
-    stats = raw_act_losses[:, 1]
+    # outputs_and_act_losses, states = rnn.static_rnn(cell, x, dtype=tf.float32)
+    outputs_and_act_losses, states = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
+    #import pdb
+    #pdb.set_trace()
+    # Works for static_rnn
+    #raw_act_losses = tf.stack([x[1] for x in outputs_and_act_losses])
+    #act_loss = time_penalty * tf.reduce_sum( tf.reduce_mean(raw_act_losses, axis=0))
+    #stats = raw_act_losses[:, 1]
+
+    # Works for dynamic_rnn
+    act_loss = time_penalty * tf.reduce_sum(tf.reduce_mean(outputs_and_act_losses[1], axis=[0, 1]))
+    stats = tf.squeeze(tf.reduce_mean(outputs_and_act_losses[1][:, :, 1], axis=0))
+    last_output = outputs_and_act_losses[0][:, -1, :]
 
     # Linear activation, using rnn inner loop last output
-    return stats, act_loss, cell, tf.matmul(outputs_and_act_losses[-1][0], weights['out']) + biases['out']
+    return stats, act_loss, cell, tf.matmul(last_output, weights['out']) + biases['out']
 
 stats, act_loss, act_cell, logits = RNN(X, weights, biases)
 prediction = tf.nn.softmax(logits)

@@ -69,9 +69,13 @@ class ACTCell(RNNCell):
                       loop_vars=[batch_mask, prob_compare, prob,
                                  counter, state, inputs, acc_outputs, acc_states])
 
-    remainder = tf.reduce_mean(1 - remainders)
-    iters = tf.reduce_mean(iterations)
-    loss = tf.stack([remainder, iters])
+    # The following works for statc_rnn
+    #remainder = tf.reduce_mean(1 - remainders)
+    #iters = tf.reduce_mean(iterations)
+    #loss = tf.stack([remainder, iters])
+
+    # The following works for dynamic_rnn
+    loss = tf.stack([1 - remainders, iterations], axis=1)
 
     if self.sigmoid_output:
       output = tf.sigmoid(tf.contrib.rnn.BasicRNNCell._linear(output,self.batch_size,0.0))
