@@ -68,7 +68,7 @@ def RNN(x, weights, biases):
     cell = rnn.GRUCell(num_hidden)
 
     cell = ACTCell(num_hidden, cell, epsilon=0.01,
-                   max_computation=50,
+                   max_computation=8,
                    batch_size=batch_size)
 
     #import pdb
@@ -114,7 +114,6 @@ with tf.Session() as sess:
         sess.run(train_op, feed_dict={X: batch_x, Y: batch_y})
         if step % display_step == 0 or step == 1:
             # Calculate batch loss and accuracy
-            print("Len of iterations: " + str(len(act_cell.ACT_iterations)))
             loss, acc, st = sess.run([loss_op, accuracy, stats], feed_dict={X: batch_x,
                                                                  Y: batch_y})
 	    stat_str = ''.join(['%2.1f ' % (x,) for x in st])

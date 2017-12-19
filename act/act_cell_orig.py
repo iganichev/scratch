@@ -21,8 +21,6 @@ class ACTCell(RNNCell):
     self._num_units = num_units
     self.cell = cell
     self.max_computation = max_computation
-    self.ACT_remainder = []
-    self.ACT_iterations = []
     self.sigmoid_output = sigmoid_output
 
     if hasattr(self.cell, "_state_is_tuple"):
@@ -75,10 +73,6 @@ class ACTCell(RNNCell):
     iters = tf.reduce_mean(iterations)
     loss = tf.stack([remainder, iters])
 
-    #accumulate remainder  and N values
-    self.ACT_remainder.append(remainder)
-    self.ACT_iterations.append(iters)
-
     if self.sigmoid_output:
       output = tf.sigmoid(tf.contrib.rnn.BasicRNNCell._linear(output,self.batch_size,0.0))
 
@@ -87,12 +81,6 @@ class ACTCell(RNNCell):
       next_state = tf.contrib.rnn.LSTMStateTuple(next_c, next_h)
 
     return (output, loss), next_state
-
-  def calculate_ponder_cost(self, time_penalty):
-      '''returns tensor of shape [1] which is the total ponder cost'''
-      return time_penalty * tf.reduce_sum(
-          tf.add_n(self.ACT_remainder)/len(self.ACT_remainder) +
-          tf.to_float(tf.add_n(self.ACT_iterations)/len(self.ACT_iterations)))
 
   def act_step(self,batch_mask,prob_compare,prob,counter,state,input,acc_outputs,acc_states):
       '''
