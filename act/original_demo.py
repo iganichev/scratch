@@ -40,6 +40,7 @@ num_input = 28 # MNIST data input (img shape: 28*28)
 timesteps = 28 # timesteps
 num_hidden = 128 # hidden layer num of features
 num_classes = 10 # MNIST total classes (0-9 digits)
+time_penalty = 0.01
 
 # tf Graph input
 X = tf.placeholder("float", [None, timesteps, num_input])
@@ -70,18 +71,25 @@ def RNN(x, weights, biases):
                    max_computation=50,
                    batch_size=batch_size)
 
-    # Get lstm cell output
-    outputs, states = rnn.static_rnn(cell, x, dtype=tf.float32)
+    #import pdb
+    #pdb.set_trace()
+    # Get gru cell output
+    # outputs_and_act_losses is a list of 28 2-tuples, each one is (output, loss_tensor)
+    outputs_and_act_losses, states = rnn.static_rnn(cell, x, dtype=tf.float32)
+    raw_act_losses = tf.stack([x[1] for x in outputs_and_act_losses])
+    act_loss = time_penalty * tf.reduce_sum(
+	tf.reduce_mean(raw_act_losses, axis=0))
+    stats = raw_act_losses[:, 1]
 
     # Linear activation, using rnn inner loop last output
-    return cell, tf.matmul(outputs[-1], weights['out']) + biases['out']
+    return stats, act_loss, cell, tf.matmul(outputs_and_act_losses[-1][0], weights['out']) + biases['out']
 
-act_cell, logits = RNN(X, weights, biases)
+stats, act_loss, act_cell, logits = RNN(X, weights, biases)
 prediction = tf.nn.softmax(logits)
 
 # Define loss and optimizer
 loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-    logits=logits, labels=Y)) + act_cell.calculate_ponder_cost(0.01)
+    logits=logits, labels=Y)) + act_loss
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 train_op = optimizer.minimize(loss_op)
 
@@ -91,9 +99,6 @@ accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
 # Initialize the variables (i.e. assign their default value)
 init = tf.global_variables_initializer()
-
-# Statistics
-stats = tf.stack(act_cell.ACT_iterations)
 
 # Start training
 with tf.Session() as sess:
