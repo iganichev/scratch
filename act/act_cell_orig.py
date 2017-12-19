@@ -15,6 +15,7 @@ class ACTCell(RNNCell):
   """
   def __init__(self, num_units, cell, epsilon,
              max_computation, batch_size, sigmoid_output=False):
+    super(ACTCell, self).__init__()
 
     self.batch_size = batch_size
     self.one_minus_eps = tf.fill([self.batch_size], tf.constant(1.0 - epsilon, dtype=tf.float32))
@@ -22,6 +23,7 @@ class ACTCell(RNNCell):
     self.cell = cell
     self.max_computation = max_computation
     self.sigmoid_output = sigmoid_output
+    self.loss_units = 2
 
     if hasattr(self.cell, "_state_is_tuple"):
         self._state_is_tuple = self.cell._state_is_tuple
@@ -34,13 +36,13 @@ class ACTCell(RNNCell):
 
   @property
   def output_size(self):
-    return (self._num_units, 2)
+    return (self._num_units, self.loss_units)
 
   @property
   def state_size(self):
     return self._num_units
 
-  def __call__(self, inputs, state, timestep=0, scope=None):
+  def call(self, inputs, state, timestep=0, scope=None):
 
     if self._state_is_tuple:
       state = tf.concat(state, 1)
