@@ -17,7 +17,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 from tensorflow.contrib import rnn
-from act_cell import ACTCell
+from act_cell_orig import ACTCell
 
 # Import MNIST data
 from tensorflow.examples.tutorials.mnist import input_data
@@ -33,7 +33,7 @@ handle 28 sequences of 28 steps for every sample.
 learning_rate = 0.001
 training_steps = 10000
 batch_size = 128
-display_step = 200
+display_step = 10
 
 # Network Parameters
 num_input = 28 # MNIST data input (img shape: 28*28)
@@ -64,7 +64,7 @@ def RNN(x, weights, biases):
     x = tf.unstack(x, timesteps, 1)
 
     # Define a lstm cell with tensorflow
-    cell = rnn.BasicLSTMCell(num_hidden, forget_bias=1.0)
+    cell = rnn.GRUCell(num_hidden)
 
     cell = ACTCell(num_hidden, cell, epsilon=0.01,
                    max_computation=50,
@@ -74,14 +74,14 @@ def RNN(x, weights, biases):
     outputs, states = rnn.static_rnn(cell, x, dtype=tf.float32)
 
     # Linear activation, using rnn inner loop last output
-    return tf.matmul(outputs[-1], weights['out']) + biases['out']
+    return cell, tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-logits = RNN(X, weights, biases)
+act_cell, logits = RNN(X, weights, biases)
 prediction = tf.nn.softmax(logits)
 
 # Define loss and optimizer
 loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-    logits=logits, labels=Y))
+    logits=logits, labels=Y)) + act_cell.calculate_ponder_cost(0.01)
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 train_op = optimizer.minimize(loss_op)
 
@@ -91,6 +91,9 @@ accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
 # Initialize the variables (i.e. assign their default value)
 init = tf.global_variables_initializer()
+
+# Statistics
+stats = tf.stack(act_cell.ACT_iterations)
 
 # Start training
 with tf.Session() as sess:
@@ -106,11 +109,13 @@ with tf.Session() as sess:
         sess.run(train_op, feed_dict={X: batch_x, Y: batch_y})
         if step % display_step == 0 or step == 1:
             # Calculate batch loss and accuracy
-            loss, acc = sess.run([loss_op, accuracy], feed_dict={X: batch_x,
+            print("Len of iterations: " + str(len(act_cell.ACT_iterations)))
+            loss, acc, st = sess.run([loss_op, accuracy, stats], feed_dict={X: batch_x,
                                                                  Y: batch_y})
+	    stat_str = ''.join(['%2.1f ' % (x,) for x in st])
             print("Step " + str(step) + ", Minibatch Loss= " + \
                   "{:.4f}".format(loss) + ", Training Accuracy= " + \
-                  "{:.3f}".format(acc))
+                  "{:.3f}".format(acc) + "\n\tstats=" + stat_str)
 
     print("Optimization Finished!")
 

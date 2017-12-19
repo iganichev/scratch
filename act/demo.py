@@ -31,6 +31,7 @@ display_step = 200
 
 # Network Parameters
 num_input = 28 # MNIST data input (img shape: 28*28)
+original_timesteps = 28 # timesteps
 timesteps = 28 # timesteps
 num_hidden = 120 # hidden layer num of features
 num_classes = 10 # MNIST total classes (0-9 digits)
@@ -100,7 +101,9 @@ class BigBrother(object):
                     s = step * batches_per_epoch + batch
                     #print("Step: " + str(s))
                     # Reshape data to get 28 seq of 28 elements
-                    batch_x = tf.reshape(batch_x, [batch_size, timesteps, num_input])
+                    batch_x = tf.reshape(batch_x, [batch_size, original_timesteps, num_input])
+                    # batch_x = tf.concat([batch_x, tf.zeros([batch_size, 4, num_input])], axis = 1)
+                    #batch_x = tf.concat([tf.zeros([batch_size, 4, num_input]), batch_x], axis = 1)
                     grads = tfe.implicit_gradients(loss)(self, batch_x, batch_y)
                     #import pdb
                     #pdb.set_trace()
