@@ -24,6 +24,7 @@ class ACTCell(RNNCell):
     self.max_computation = max_computation
     self.sigmoid_output = sigmoid_output
     self.loss_units = 2
+    self.return_last = False
 
     if hasattr(self.cell, "_state_is_tuple"):
         self._state_is_tuple = self.cell._state_is_tuple
@@ -53,6 +54,7 @@ class ACTCell(RNNCell):
       prob_compare = tf.zeros_like(prob, tf.float32, name="prob_compare")
       counter = tf.zeros_like(prob, tf.float32, name="counter")
       acc_outputs = tf.fill([self.batch_size, self._num_units], 0.0, name='output_accumulator')
+      internal_output = tf.fill([self.batch_size, self._num_units], 0.0, name='internal_output_accumulator')
       acc_states = tf.zeros_like(state, tf.float32, name="state_accumulator")
       batch_mask = tf.fill([self.batch_size], True, name="batch_mask")
 
@@ -60,23 +62,36 @@ class ACTCell(RNNCell):
     # While loop stops when this predicate is FALSE.
     # Ie all (probability < 1-eps AND counter < N) are false.
     def halting_predicate(batch_mask, prob_compare, prob,
-                  counter, state, input, acc_output, acc_state):
+                  counter,
+                          internal_output,
+                          state, input, acc_output, acc_state):
         return tf.reduce_any(tf.logical_and(
                 tf.less(prob_compare,self.one_minus_eps),
                 tf.less(counter, self.max_computation)))
 
     # Do while loop iterations until predicate above is false.
-    _,_,remainders,iterations,_,_,output,next_state = \
+    (_, final_batch_mask, remainders, iterations,
+     final_internal_output,
+     final_internal_state, _, output, next_state) = \
         tf.while_loop(halting_predicate, self.act_step,
                       loop_vars=[batch_mask, prob_compare, prob,
-                                 counter, state, inputs, acc_outputs, acc_states])
+                                 counter,
+                                 internal_output,
+                                 state, inputs, acc_outputs, acc_states])
 
-    # The following works for statc_rnn
-    #remainder = tf.reduce_mean(1 - remainders)
-    #iters = tf.reduce_mean(iterations)
-    #loss = tf.stack([remainder, iters])
 
-    # The following works for dynamic_rnn
+    # when all examples finished within max_computation, final_batch_mask should be
+    # all zeros. If some values are 1, we need to set corresponding values in
+    # next_state and output to the final internal state and final internal
+    # output.
+    if self.return_last:
+      active_examples_float_mask = tf.expand_dims(
+          tf.cast(final_batch_mask, tf.float32), -1)
+      next_state = (active_examples_float_mask * final_internal_state) + next_state
+      output = (active_examples_float_mask * final_internal_output) + output
+
+    # TODO(iga): It seems like we don't actually need to add iterations since no
+    # gradient can flow through it.
     loss = tf.stack([1 - remainders, iterations], axis=1)
 
     if self.sigmoid_output:
@@ -88,7 +103,9 @@ class ACTCell(RNNCell):
 
     return (output, loss), next_state
 
-  def act_step(self,batch_mask,prob_compare,prob,counter,state,input,acc_outputs,acc_states):
+  def act_step(self,batch_mask,prob_compare,prob,counter,
+               internal_output,
+               state,input,acc_outputs,acc_states):
       '''
       General idea: generate halting probabilites and accumulate them. Stop when the accumulated probs
       reach a halting value, 1-eps. At each timestep, multiply the prob with the rnn output/state.
@@ -117,6 +134,8 @@ class ACTCell(RNNCell):
           new_state = tf.concat(new_state, 1)
 
       with tf.variable_scope('sigmoid_activation_for_pondering'):
+          # Can set some columns of W to be zero to limit "halting unit"'s
+          # access to state.
           p = tf.squeeze(tf.layers.dense(new_state, 1, activation=tf.sigmoid, use_bias=True), squeeze_dims=1)
 
       # Multiply by the previous mask as if we stopped before, we don't want to start again
@@ -140,19 +159,32 @@ class ACTCell(RNNCell):
       #counter = tf.Print(counter, [counter], message="Counter value: ")
       counter += new_float_mask
 
-      # Halting condition (halts, and uses the remainder when this is FALSE):
-      # If any batch element still has both a prob < 1 - epsilon AND counter < N we
-      # continue, using the outputed probability p.
-      counter_condition = tf.less(counter, self.max_computation)
 
-      final_iteration_condition = tf.logical_and(new_batch_mask, counter_condition)
-      use_remainder = tf.expand_dims(1.0 - prob, -1)
-      use_probability = tf.expand_dims(p, -1)
-      update_weight = tf.where(final_iteration_condition, use_probability, use_remainder)
-      float_mask = tf.expand_dims(tf.cast(batch_mask, tf.float32), -1)
+      if not self.return_last:  # original ACT paper
+        # Halting condition (halts, and uses the remainder when this is FALSE):
+        # If any batch element still has both a prob < 1 - epsilon AND counter < N we
+        # continue, using the outputed probability p.
+        counter_condition = tf.less(counter, self.max_computation)
 
-      acc_state = (new_state * update_weight * float_mask) + acc_states
-      acc_output = (output[0] * update_weight * float_mask) + acc_outputs
+        final_iteration_condition = tf.logical_and(new_batch_mask, counter_condition)
+        use_remainder = tf.expand_dims(1.0 - prob, -1)
+        use_probability = tf.expand_dims(p, -1)
+        update_weight = tf.where(final_iteration_condition, use_probability, use_remainder)
+        float_mask = tf.expand_dims(tf.cast(batch_mask, tf.float32), -1)
 
-      return [new_batch_mask, prob_compare, prob, counter, new_state, input, acc_output, acc_state]
+        acc_state = (new_state * update_weight * float_mask) + acc_states
+        acc_output = (output[0] * update_weight * float_mask) + acc_outputs
+
+      else:  # return the last state
+        examples_done_this_step = tf.logical_and(tf.logical_not(new_batch_mask), batch_mask)
+        examples_done_this_step_float = tf.expand_dims(
+            tf.cast(examples_done_this_step, tf.float32),
+            -1)
+
+        acc_state = (examples_done_this_step_float * new_state) + acc_states
+        acc_output = (examples_done_this_step_float * output[0]) + acc_outputs
+
+      return [new_batch_mask, prob_compare, prob, counter,
+              output[0],
+              new_state, input, acc_output, acc_state]
 
